@@ -1,0 +1,14 @@
+This is a C++ implementation of the paper "A Simple Optimistic skip-list Algorithm" 
+	written by Maurice Herlihy, Yossi Lev, Victor Luchangco, Nir Shavit.
+
+It require's
+boost/foreach.hpp
+boost/random.hpp
+boost/shared_ptr.hpp
+boost/scoped_ptr.hpp
+
+Unit test is powered by google test 
+http://code.google.com/p/googletest/
+
+I don't claim any rights of this code.
+And I don't know any licence about this algorithm. Please check yourself.

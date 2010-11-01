@@ -3,51 +3,59 @@
 #include "node.hpp"
 #include <boost/foreach.hpp>
 #include <boost/random.hpp>
-#define BOOST_SP_DISABLE_THREADS
+#include <boost/weak_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
+#include <boost/lambda/lambda.hpp>
 #include <utility>
+
+template <typename T>
+void nothing_deleter(const T*){
+	//std::cerr << "good morning all!" << std::endl;
+} // do nothing
 
 template <typename key,typename value, int height = 8>
 class sl{
 	typedef node<key,value> node_t;
-	typedef boost::array<node_t*, height> node_array;
-	typedef typename node_t::next_array node_vector;
+	typedef boost::shared_ptr<node_t> shared_node;
+	typedef boost::weak_ptr<node_t> weak_node;
+	typedef boost::array<node_t*, height> ptr_node_array;
+	typedef boost::array<weak_node, height> weak_node_array;
+	typedef boost::array<shared_node, height> locked_node_array;
 
-	typedef std::pair<node_array,node_vector> nodelists;
+	typedef std::pair<weak_node_array,weak_node_array> nodelists;
 	typedef typename node_t::scoped_lock scoped_lock;
 	
 	typedef boost::shared_ptr<scoped_lock> scoped_lock_ptr;
 	typedef boost::optional<typename node_t::scoped_lock> optional_lock;
 
 	node_t head;
-	node_t tail;
+	shared_node shared_head;
+	node_t* tail_ptr;
 	boost::mt19937 engine;
 	boost::uniform_smallint<> range;
 	mutable boost::variate_generator<boost::mt19937&, boost::uniform_smallint<> > rand;
 public:
 	sl(const key& min, const key& max, int randomseed = 0)
-		:head(min ,value(), height), tail(max, value(), height)
+		:head(min ,value(), height),shared_head(&head, nothing_deleter<node_t>)
 		,engine(static_cast<unsigned long>(randomseed)),range(0,(1<<height) -1)
 		,rand(engine,range){
-		BOOST_FOREACH(node_t*& p, head.next){p = &tail;}
+		shared_node tail(new node_t(max,value(), 0));
+		tail_ptr = tail.get();
+		BOOST_FOREACH(shared_node& p, head.next){p = tail;}
 		head.fullylinked = true;
 	}
 	~sl(){
-		node_t* ptr = head.next[0];
-		while(ptr != &tail){
-			node_t* next = ptr->next[0];
-			delete ptr;
-			ptr = next;
-		}
 	}
 	bool contains(const key& k){
 		nodelists lists;
 		const int lv = find(k, &lists);
-		node_vector& succs = lists.second;
-		return (lv != -1 
-						&& succs[lv]->fullylinked
-						&& !succs[lv]->marked);
+		weak_node_array& succs = lists.second;
+		if(lv == -1) return false;
+		shared_node succ = succs[lv].lock();
+		if(!succ) return false;
+		return succ->fullylinked
+			&& !succ->marked;
 	}
 	bool add(const key& k, const value& v){
 		const int top_layer = random_level();
@@ -56,11 +64,12 @@ public:
 		std::auto_ptr<node_t> newnode(new node_t(k, v, top_layer));
 		while(true){
 			const int lv = find(k, &lists);
-			node_array& preds = lists.first;
-			node_vector& succs = lists.second;
+			weak_node_array& preds = lists.first;
+			weak_node_array& succs = lists.second;
 			
 			if(lv != -1){
-				const node_t* found = succs[lv];
+				const node_t* found = succs[lv].lock().get();
+				if(!found) continue;
 				if(!found->marked){
 					while(!found->fullylinked){;}
 					return false;
@@ -68,31 +77,49 @@ public:
 				usleep(1);
 				continue;
 			}
+			bool valid = true;
+
+			
+			// get shared_ptr from weak_ptr array
+			locked_node_array locked_preds;
+			locked_node_array locked_succs;
+			for(int i=0;i<=top_layer;++i){
+				locked_preds[i] = preds[i].lock();
+				locked_succs[i] = succs[i].lock();
+				if(!locked_preds[i]) {valid = false; break;}
+			}
+			if(!valid){
+				continue;
+			}
 			
 			node_t *prev_pred = NULL;
-			bool valid = true;
 			std::vector<scoped_lock_ptr> pred_locks(top_layer+1);
 			for(int layer = 0; valid&& (layer <= top_layer); ++layer){
-				node_t *pred = preds[layer];
-				const node_t *succ = succs[layer];
-				if(pred != prev_pred){
+				shared_node& pred = locked_preds[layer];
+				const shared_node& succ = locked_succs[layer];
+				
+				if(pred.get() != prev_pred){
 					pred_locks[layer] = scoped_lock_ptr(new scoped_lock(pred->guard));
-					prev_pred = pred;
+					prev_pred = pred.get();
 				}
-				valid = !pred->marked 
+				valid = !pred->marked
 					&& !succ->marked
-					&& pred->next[layer] == succ;
+					&& pred->next[layer].get() == succ.get();
 			}
 			if(!valid){
 				continue; // unlock all
 			}
 
 			// start to insert
-			newnode->next.swap(succs);
-			node_t* newnode_insert = newnode.get();
-			newnode.release();
+			for(int i = 0;i<=top_layer; ++i){
+				newnode->next[i] = shared_node(succs[i]);
+				//std::cerr << "[" << newnode->next[i] << "]f";
+			}
+
+			shared_node newnode_insert(newnode.get());
+			newnode.release(); // it's all reason why I use auto_ptr
 			for(int layer = 0;layer <= top_layer; ++layer){
-				preds[layer]->next[layer] = newnode_insert;
+				locked_preds[layer]->next[layer] = newnode_insert;
 			}
 			newnode_insert->fullylinked = true;
 			return true;
@@ -104,46 +131,60 @@ public:
 		nodelists lists;
 		bool is_marked = false;
 		int top_layer = -1;
+		shared_node victim;
 		while(true){
-			node_t* node_to_delete = NULL;
 			
 			int lv = find(k, &lists);
-			node_array& preds = lists.first;
-			node_vector& succs = lists.second;
-			if(is_marked || (lv != -1 && ok_to_delete(succs[lv],lv))){
-				if(node_to_delete == NULL){ // only one time done
-					node_to_delete = succs[lv];
-					top_layer = node_to_delete->top_layer;
-					node_to_delete->guard.lock(); // lock
-					if(node_to_delete->marked){
-						node_to_delete->guard.unlock();
+			weak_node_array& preds = lists.first;
+			weak_node_array& succs = lists.second;
+			
+			if(!is_marked && lv != -1){
+				victim = succs[lv].lock();
+			}
+			if(is_marked || (lv != -1 && ok_to_delete(victim.get(),lv))){
+				if(victim.get() == NULL){ // only one time done
+					top_layer = victim->top_layer;
+					victim->guard.lock(); // lock
+					if(victim->marked){
+						victim->guard.unlock();
 						return false;
 					}
-					node_to_delete->marked = true;
+					victim->marked = true;
 					is_marked = true;
 				}
 
-				node_t *prev_pred = NULL;
 				bool valid = true;
+				// get shared_ptr from weak_ptr array
+				locked_node_array locked_preds;
+				locked_node_array locked_succs;
+				for(int i=0;i<=top_layer;++i){
+					locked_preds[i] = preds[i].lock();
+					locked_succs[i] = succs[i].lock();
+					if(!locked_preds[i]) {valid = false; break;}
+				}
+				if(!valid){
+					continue;
+				}
+				
+				node_t *prev_pred = NULL;
 				std::vector<scoped_lock_ptr> pred_locks(top_layer+1);
 				for(int layer = 0; valid && (layer <= top_layer); ++layer){
-					node_t *pred = preds[layer];
-					const node_t *succ = succs[layer];
+					node_t *pred = locked_preds[layer].get();
+					const node_t *succ = locked_succs[layer].get();
 					if(pred != prev_pred){
 						pred_locks[layer] = scoped_lock_ptr(new scoped_lock(pred->guard));
 						prev_pred = pred;
 					}
-					valid = !pred->marked && pred->next[layer] == succ;
+					valid = !pred->marked && pred->next[layer].get() == succ;
 				}
 				if(!valid){
 					continue;
 				}
 				
 				for(int layer = top_layer; layer>=0; --layer){
-					preds[layer]->next[layer] = node_to_delete->next[layer];
+					locked_preds[layer]->next[layer] = victim->next[layer];
 				}
-				node_to_delete->guard.unlock();
-				delete node_to_delete;
+				victim->guard.unlock();
 				return true;
 			}else 
 				return false; 
@@ -152,18 +193,20 @@ public:
 	
 	int find(const key& target, nodelists* lists){
 		int found = -1;
-		node_t* pred = &head;
+		
+		shared_node pred = shared_head;
 		*lists = nodelists();
-		lists->second.resize(height);
+		//lists->second.resize(height);
 		for(int lv = height-1; lv >= 0; --lv){
-			node_t* curr = pred->next[lv];
+			shared_node curr = pred->next[lv];
 			while(curr->k < target){
 				pred = curr; curr = pred->next[lv];
 			}
-			if(found == -1 && target == curr->k){ found = lv; }
-			lists->first[lv] = pred;
-			lists->second[lv] = curr;
+			if(found == -1 && target == curr->k){ found = lv;}
+			lists->first[lv] = weak_node(pred);
+			lists->second[lv] = weak_node(curr);
 		}
+		
 		return found;
 	}
 	
@@ -171,13 +214,13 @@ public:
 		const node_t* p = &head;
 		while(p != NULL){
 			p->dump();
-			p = p->next[0];
+			p = p->next[0].get();
 			std::cerr << std::endl;
 		}
 	}
 	
-	bool empty()const{
-		return head.next[0] == &tail;
+	bool is_empty()const{
+		return head.next[0].get() == tail_ptr;
 	}
 public:
 	uint32_t random_level()const {

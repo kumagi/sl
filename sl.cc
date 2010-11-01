@@ -11,13 +11,13 @@ using std::string;
 using boost::shared_ptr;
 
 TEST(construct, first){
-							 
 	sl<string,shared_ptr<int>,8> i("0", "~~~~");
 }
 
 TEST(insert, one){
 	sl<int, string,4> dat(INT_MIN,INT_MAX);
 	EXPECT_TRUE(dat.add(2,"tmp"));
+	std::cerr << "insert ok" << std::endl;
 }
 
 TEST(insert, one_contains){
@@ -26,12 +26,12 @@ TEST(insert, one_contains){
 	EXPECT_TRUE(!dat.contains(1));
 	EXPECT_TRUE(dat.contains(2));
 	EXPECT_TRUE(!dat.contains(3));
-	dat.dump();
 }
 TEST(insert, two){
 	sl<int, string,4> dat(INT_MIN,INT_MAX);
 	EXPECT_TRUE(dat.add(2,"v2"));
 	EXPECT_TRUE(dat.add(3,"v3"));
+	dat.dump();
 }
 
 TEST(insert, two_contains){
@@ -61,7 +61,7 @@ TEST(remove, head){
 	EXPECT_TRUE(dat.add(1,"v1"));
 	EXPECT_TRUE(dat.add(2,"v2"));
 	EXPECT_TRUE(dat.add(3,"v3"));
-	dat.dump();
+
 	assert(dat.contains(1));
 	assert(dat.contains(2));
 	assert(dat.contains(3));
@@ -69,7 +69,7 @@ TEST(remove, head){
 	assert(!dat.contains(1));
 	assert(dat.contains(2));
 	assert(dat.contains(3));
-	dat.dump();
+
 }
 
 TEST(remove, middle){
@@ -99,11 +99,12 @@ TEST(remove, tail){
 	assert(dat.contains(2));
 	assert(!dat.contains(3));
 }
+
 TEST(empty,test){
 	sl<int, int,4> dat(INT_MIN,INT_MAX);
-	EXPECT_TRUE(dat.empty());
+	EXPECT_TRUE(dat.is_empty());
 	EXPECT_TRUE(dat.add(2,3));
-	EXPECT_FALSE(dat.empty());
+	EXPECT_FALSE(dat.is_empty());
 }
 
 
@@ -122,3 +123,4 @@ TEST(random_add, 500){
 		EXPECT_FALSE(dat.contains(i));
 	}
 }
+

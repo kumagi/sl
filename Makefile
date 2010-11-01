@@ -12,9 +12,9 @@ WARNS= -W -Wall -Wextra -Wformat=2 -Wstrict-aliasing=4 -Wcast-qual -Wcast-align 
 NOTIFY=&& notify-send Test success! -i ~/themes/ok_icon.png || notify-send Test failed... -i ~/themes/ng_icon.png
 SRCS=$(HEADS) $(BODYS)
 
-target:test
-target:bench
-target:bench2
+#target:test
+#target:bench
+#target:bench2
 target:pg_bench
 
 test:sl.o gtest_main.a
@@ -29,16 +29,16 @@ bench:bench.o
 bench.o:bench.cc sl.hpp node.hpp
 	$(CXX) -c -o $@ bench.cc  $(OPTS) $(WARNS)
 bench2:bench2.o
-	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(OPTIMIZE) $(WARNS)
+	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(OPTIMIZE) $(WARNS) -g
 	./bench2 $(NOTIFY)
 bench2.o:bench.cc sl.hpp node.hpp
-	$(CXX) -c -o $@ bench.cc  $(OPTIMIZE) $(WARNS)
+	$(CXX) -c -o $@ bench.cc  $(OPTIMIZE) $(WARNS) -g
 pg_bench:pg_bench.o
-	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(WARNS) -pg -g
+	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(WARNS) -O4 -fno-inline -pg -g
 	./pg_bench $(NOTIFY)
 	gprof pg_bench > profile
-pg_bench.o:bench.cc sl.hpp node.hpp
-	$(CXX) -c -o $@ bench.cc $(WARNS) -pg -g
+pg_bench.o:bench.cc sl.hpp node.hpp 
+	$(CXX) -c -o $@ bench.cc $(WARNS) -O4 -fno-inline -pg -g
 
 # gtest
 gtest_main.o:

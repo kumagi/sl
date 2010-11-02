@@ -26,6 +26,7 @@ TEST(insert, one_contains){
 	EXPECT_TRUE(!dat.contains(1));
 	EXPECT_TRUE(dat.contains(2));
 	EXPECT_TRUE(!dat.contains(3));
+	dat.dump();
 }
 TEST(insert, two){
 	sl<int, string,4> dat(INT_MIN,INT_MAX);
@@ -52,23 +53,24 @@ TEST(insert, collide){
 TEST(remove, one){
 	sl<int, string,4> dat(INT_MIN,INT_MAX);
 	EXPECT_TRUE(dat.add(2,"tmp"));
-	assert(dat.contains(2));
+	EXPECT_TRUE(dat.contains(2));
 	EXPECT_TRUE(dat.remove(2));
 	EXPECT_TRUE(!dat.contains(2));
 }
+
 TEST(remove, head){
 	sl<int, string,4> dat(INT_MIN,INT_MAX);
 	EXPECT_TRUE(dat.add(1,"v1"));
 	EXPECT_TRUE(dat.add(2,"v2"));
 	EXPECT_TRUE(dat.add(3,"v3"));
 
-	assert(dat.contains(1));
-	assert(dat.contains(2));
-	assert(dat.contains(3));
+	EXPECT_TRUE(dat.contains(1));
+	EXPECT_TRUE(dat.contains(2));
+	EXPECT_TRUE(dat.contains(3));
 	EXPECT_TRUE(dat.remove(1));
-	assert(!dat.contains(1));
-	assert(dat.contains(2));
-	assert(dat.contains(3));
+	EXPECT_TRUE(!dat.contains(1));
+	EXPECT_TRUE(dat.contains(2));
+	EXPECT_TRUE(dat.contains(3));
 
 }
 
@@ -77,13 +79,13 @@ TEST(remove, middle){
 	EXPECT_TRUE(dat.add(1,"v1"));
 	EXPECT_TRUE(dat.add(2,"v2"));
 	EXPECT_TRUE(dat.add(3,"v3"));
-	assert(dat.contains(1));
-	assert(dat.contains(2));
-	assert(dat.contains(3));
+	EXPECT_TRUE(dat.contains(1));
+	EXPECT_TRUE(dat.contains(2));
+	EXPECT_TRUE(dat.contains(3));
 	EXPECT_TRUE(dat.remove(2));
-	assert(dat.contains(1));
-	assert(!dat.contains(2));
-	assert(dat.contains(3));
+	EXPECT_TRUE(dat.contains(1));
+	EXPECT_TRUE(!dat.contains(2));
+	EXPECT_TRUE(dat.contains(3));
 }
 
 TEST(remove, tail){
@@ -91,13 +93,13 @@ TEST(remove, tail){
 	EXPECT_TRUE(dat.add(1,"v1"));
 	EXPECT_TRUE(dat.add(2,"v2"));
 	EXPECT_TRUE(dat.add(3,"v3"));
-	assert(dat.contains(1));
-	assert(dat.contains(2));
-	assert(dat.contains(3));
+	EXPECT_TRUE(dat.contains(1));
+	EXPECT_TRUE(dat.contains(2));
+	EXPECT_TRUE(dat.contains(3));
 	EXPECT_TRUE(dat.remove(3));
-	assert(dat.contains(1));
-	assert(dat.contains(2));
-	assert(!dat.contains(3));
+	EXPECT_TRUE(dat.contains(1));
+	EXPECT_TRUE(dat.contains(2));
+	EXPECT_TRUE(!dat.contains(3));
 }
 
 TEST(empty,test){

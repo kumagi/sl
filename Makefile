@@ -1,6 +1,6 @@
 CXX=g++
 OPTS=-O0 -fexceptions -g -coverage
-OPTIMIZE=-O2
+OPTIMIZE=-O4
 LD=-L/usr/local/lib -lboost_program_options -lpthread -lboost_thread -lgcov
 OPTIMIZE_LD=-L/usr/local/lib -lboost_program_options -lpthread -lboost_thread -lboost_date_time
 TEST_LD= -lpthread $(LD)
@@ -13,9 +13,9 @@ NOTIFY=&& notify-send Test success! -i ~/themes/ok_icon.png || notify-send Test 
 SRCS=$(HEADS) $(BODYS)
 
 #target:test
-#target:bench
+target:bench
 #target:bench2
-target:pg_bench
+#target:pg_bench
 
 test:sl.o gtest_main.a
 	$(CXX) -o $@ $^ $(LD) $(OPTS) $(WARNS)
@@ -23,16 +23,16 @@ test:sl.o gtest_main.a
 sl.o:sl.cc sl.hpp node.hpp
 	$(CXX) -c -o $@ sl.cc  $(OPTS) $(WARNS) -I$(GTEST_DIR)/include -I$(GTEST_DIR)
 bench:bench.o
-	$(CXX) -o $@ $^ $(LD) $(OPTS) $(WARNS)
+	$(CXX) -o $@ $^ $(LD) $(OPTS) $(WARNS) 
 	./bench $(NOTIFY)
 	gcov bench.gcda > /dev/null
 bench.o:bench.cc sl.hpp node.hpp
 	$(CXX) -c -o $@ bench.cc  $(OPTS) $(WARNS)
 bench2:bench2.o
-	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(OPTIMIZE) $(WARNS) -g
+	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(OPTIMIZE) $(WARNS) -DNDEBUG -g
 	./bench2 $(NOTIFY)
 bench2.o:bench.cc sl.hpp node.hpp
-	$(CXX) -c -o $@ bench.cc  $(OPTIMIZE) $(WARNS) -g
+	$(CXX) -c -o $@ bench.cc  $(OPTIMIZE) $(WARNS) -DNDEBUG -g
 pg_bench:pg_bench.o
 	$(CXX) -o $@ $^ $(OPTIMIZE_LD) $(WARNS) -O4 -fno-inline -pg -g
 	./pg_bench $(NOTIFY)

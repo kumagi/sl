@@ -6,7 +6,6 @@
 #include <boost/weak_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <boost/lambda/lambda.hpp>
 #include <utility>
 
 template <typename T>
@@ -42,7 +41,9 @@ public:
 		,rand(engine,range){
 		shared_node tail(new node_t(max,value(), 0));
 		tail_ptr = tail.get();
-		BOOST_FOREACH(shared_node& p, head.next){p = tail;}
+		for(int i=0;i<height;i++){
+			head.next[i] = tail;
+		}
 		head.fullylinked = true;
 	}
 	~sl(){
@@ -57,6 +58,7 @@ public:
 		return succ->fullylinked
 			&& !succ->marked;
 	}
+	
 	bool add(const key& k, const value& v){
 		const int top_layer = random_level();
 		assert(top_layer < height);
@@ -86,7 +88,7 @@ public:
 			for(int i=0;i<=top_layer;++i){
 				locked_preds[i] = preds[i].lock();
 				locked_succs[i] = succs[i].lock();
-				if(!locked_preds[i]) {valid = false; break;}
+				if(!locked_preds[i] || !locked_succs[i]) {valid = false; break;}
 			}
 			if(!valid){
 				continue;
@@ -94,19 +96,23 @@ public:
 			
 			node_t *prev_pred = NULL;
 			std::vector<scoped_lock_ptr> pred_locks(top_layer+1);
-			for(int layer = 0; valid&& (layer <= top_layer); ++layer){
-				shared_node& pred = locked_preds[layer];
-				const shared_node& succ = locked_succs[layer];
+			for(int layer = 0; valid && (layer <= top_layer); ++layer){
+				node_t* pred = locked_preds[layer].get();
+				const node_t* succ = locked_succs[layer].get();
 				
-				if(pred.get() != prev_pred){
+				if(pred != prev_pred){
 					pred_locks[layer] = scoped_lock_ptr(new scoped_lock(pred->guard));
-					prev_pred = pred.get();
+					prev_pred = pred;
 				}
+				assert(pred);
+				assert(succ);
 				valid = !pred->marked
 					&& !succ->marked
-					&& pred->next[layer].get() == succ.get();
+					&& pred->next[layer].get() == succ;
+				
 			}
 			if(!valid){
+//				std::cerr << "unlock \n";
 				continue; // unlock all
 			}
 
@@ -132,17 +138,22 @@ public:
 		bool is_marked = false;
 		int top_layer = -1;
 		shared_node victim;
+		assert(victim.get() == NULL);
 		while(true){
 			
 			int lv = find(k, &lists);
 			weak_node_array& preds = lists.first;
 			weak_node_array& succs = lists.second;
 			
-			if(!is_marked && lv != -1){
+			if(lv != -1){
 				victim = succs[lv].lock();
+				if(!victim) return false;
 			}
-			if(is_marked || (lv != -1 && ok_to_delete(victim.get(),lv))){
-				if(victim.get() == NULL){ // only one time done
+			if(is_marked || 
+				 (lv != -1 && (victim->fullylinked
+											 && victim->top_layer == lv 
+											 && !victim->marked))){
+				if(is_marked == false){ // only one time done
 					top_layer = victim->top_layer;
 					victim->guard.lock(); // lock
 					if(victim->marked){
@@ -160,7 +171,7 @@ public:
 				for(int i=0;i<=top_layer;++i){
 					locked_preds[i] = preds[i].lock();
 					locked_succs[i] = succs[i].lock();
-					if(!locked_preds[i]) {valid = false; break;}
+					if(!locked_preds[i] || !locked_succs[i]) {valid = false; break;}
 				}
 				if(!valid){
 					continue;
@@ -195,12 +206,14 @@ public:
 		int found = -1;
 		
 		shared_node pred = shared_head;
+		shared_node curr;
 		*lists = nodelists();
 		//lists->second.resize(height);
 		for(int lv = height-1; lv >= 0; --lv){
-			shared_node curr = pred->next[lv];
+			curr = pred->next[lv];
 			while(curr->k < target){
-				pred = curr; curr = pred->next[lv];
+				pred = curr;
+				curr = pred->next[lv];
 			}
 			if(found == -1 && target == curr->k){ found = lv;}
 			lists->first[lv] = weak_node(pred);

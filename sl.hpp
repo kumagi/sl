@@ -6,6 +6,7 @@
 #include <boost/weak_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
+#include <boost/optional.hpp>
 #include <utility>
 
 template <typename T>
@@ -57,6 +58,20 @@ public:
 		if(!succ) return false;
 		return succ->fullylinked
 			&& !succ->marked;
+	}
+	
+	boost::optional<value> get(const key& k){
+		nodelists lists;
+		const int lv = find(k, &lists);
+		weak_node_array& succs = lists.second;
+		if(lv == -1) return NULL;
+		shared_node succ = succs[lv].lock();
+		if(!succ) return NULL;
+		if(succ->fullylinked && !succ->marked){
+			return succ->v;
+		}else{
+			return NULL;
+		}
 	}
 	
 	bool add(const key& k, const value& v){

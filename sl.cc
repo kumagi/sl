@@ -109,6 +109,23 @@ TEST(empty,test){
 	EXPECT_FALSE(dat.is_empty());
 }
 
+TEST(get, failue){
+	sl<int, int,4> dat(INT_MIN,INT_MAX);
+	for(int i=0;i<10;i++){
+		EXPECT_TRUE(dat.get(i) == NULL);
+	}
+}
+
+TEST(get, succeed){
+	sl<int, int,4> dat(INT_MIN,INT_MAX);
+	for(int i=0;i<10;i++){
+		dat.add(i,i*2);
+	}
+	for(int i=0;i<10;i++){
+		EXPECT_TRUE(*dat.get(i) == i*2);
+	}
+}
+
 
 TEST(random_add, 500){
 	sl<int, int, 6> dat(INT_MIN,INT_MAX);

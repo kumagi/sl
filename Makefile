@@ -12,8 +12,8 @@ WARNS= -W -Wall -Wextra -Wformat=2 -Wstrict-aliasing=4 -Wcast-qual -Wcast-align 
 NOTIFY=&& notify-send Test success! -i ~/themes/ok_icon.png || notify-send Test failed... -i ~/themes/ng_icon.png
 SRCS=$(HEADS) $(BODYS)
 
-#target:test
-target:bench
+target:test
+#target:bench
 #target:bench2
 #target:pg_bench
 

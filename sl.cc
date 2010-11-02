@@ -112,7 +112,7 @@ TEST(empty,test){
 TEST(get, failue){
 	sl<int, int,4> dat(INT_MIN,INT_MAX);
 	for(int i=0;i<10;i++){
-		EXPECT_TRUE(dat.get(i) == NULL);
+		EXPECT_TRUE(dat.get(i) == dat.end());
 	}
 }
 
@@ -122,7 +122,7 @@ TEST(get, succeed){
 		dat.add(i,i*2);
 	}
 	for(int i=0;i<10;i++){
-		EXPECT_TRUE(*dat.get(i) == i*2);
+		EXPECT_TRUE(dat.get(i)->second == i*2);
 	}
 }
 
@@ -143,3 +143,26 @@ TEST(random_add, 500){
 	}
 }
 
+TEST(iterator, get){
+	typedef sl<int,int,4> sl;
+	sl dat(INT_MIN,INT_MAX);
+	dat.add(12,1);
+	sl::iterator it = dat.get(21);
+	EXPECT_TRUE(it == dat.end());
+	sl::iterator jt = dat.get(12);
+	EXPECT_TRUE(jt->first == 12);
+	EXPECT_TRUE(jt->second == 1);
+}
+
+TEST(iterator, inc){
+	typedef sl<int,int,4> sl;
+	sl dat(INT_MIN,INT_MAX);
+	dat.add(12,1);
+	dat.add(13,1);
+	sl::iterator it = dat.lower_bound(12);
+	EXPECT_TRUE(it->first == 12);
+	++it;
+	EXPECT_TRUE(it->first == 13);
+	++it;
+	EXPECT_TRUE(it == dat.end());
+}

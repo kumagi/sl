@@ -16,6 +16,7 @@ void nothing_deleter(const T*){
 
 template <typename key,typename value, int height = 8>
 class sl{
+	typedef sl<key,value,height> sl_t;
 	typedef node<key,value> node_t;
 	typedef boost::shared_ptr<node_t> shared_node;
 	typedef boost::weak_ptr<node_t> weak_node;
@@ -29,19 +30,52 @@ class sl{
 	typedef boost::shared_ptr<scoped_lock> scoped_lock_ptr;
 	typedef boost::optional<typename node_t::scoped_lock> optional_lock;
 
+public:
+	class iterator{
+		shared_node node;
+	public:
+		iterator(){}
+		explicit iterator(shared_node& s):node(s){}
+		node_t& operator*() { return *node; }
+		node_t* operator->() { return &operator*(); }
+		const node_t& operator*() const { return *node; }
+		const node_t* operator->() const { return &operator*();}
+		bool operator==(const iterator& rhs)const{return node.get() == rhs.node.get();}
+		shared_node& get(){return node;}
+		const shared_node& get()const{return node;}
+		iterator& operator++(){
+			while(true){
+				if(node->next[0].get() != NULL){
+					node = node->next[0];
+				}
+				if(node->marked) continue;
+				break;
+			}
+			return *this;
+		}
+	private:
+
+//		iterator(const iterator&);
+	};
+
+private:
 	node_t head;
-	shared_node shared_head;
-	node_t* tail_ptr;
+	iterator shared_head, shared_tail;
 	boost::mt19937 engine;
 	boost::uniform_smallint<> range;
 	mutable boost::variate_generator<boost::mt19937&, boost::uniform_smallint<> > rand;
 public:
 	sl(const key& min, const key& max, int randomseed = 0)
-		:head(min ,value(), height),shared_head(&head, nothing_deleter<node_t>)
-		,engine(static_cast<unsigned long>(randomseed)),range(0,(1<<height) -1)
-		,rand(engine,range){
-		shared_node tail(new node_t(max,value(), 0));
-		tail_ptr = tail.get();
+		:head(min ,value(), height)
+		,engine(static_cast<unsigned long>(randomseed))
+		,range(0,(1<<height) -1),rand(engine,range){
+		shared_node head_node(&head,nothing_deleter<node_t>);
+		shared_node tail_node(new node_t(max,value(),0));
+		iterator head_iter(head_node);
+		iterator tail_iter(tail_node);
+		shared_head = head_iter;
+		shared_tail = tail_iter;
+		shared_node& tail = shared_tail.get();
 		for(int i=0;i<height;i++){
 			head.next[i] = tail;
 		}
@@ -59,18 +93,36 @@ public:
 		return succ->fullylinked
 			&& !succ->marked;
 	}
+
 	
-	boost::optional<value> get(const key& k){
+	iterator get(const key& k){
 		nodelists lists;
 		const int lv = find(k, &lists);
 		weak_node_array& succs = lists.second;
-		if(lv == -1) return NULL;
+		if(lv == -1) return end();
 		shared_node succ = succs[lv].lock();
-		if(!succ) return NULL;
+		if(!succ) return end();
 		if(succ->fullylinked && !succ->marked){
-			return succ->v;
+			return iterator(succ);
 		}else{
-			return NULL;
+			return end();
+		}
+	}
+
+	iterator lower_bound(const key& k){
+		nodelists lists;
+		const int lv = find(k, &lists);
+		weak_node_array& currs = lists.first;
+		weak_node_array& succs = lists.second;
+		shared_node curr = currs[0].lock();
+		if(lv == -1) return iterator(curr);
+		shared_node succ = succs[lv].lock();
+		if(!succ) return end();
+		if(succ->fullylinked && !succ->marked){
+			return iterator(succ);
+		}else{
+			shared_node curr = currs[0].lock();
+			return iterator(curr);
 		}
 	}
 	
@@ -147,6 +199,11 @@ public:
 		}
 		assert(!"never reach");
 	}
+
+	iterator& begin(){ return shared_head;}
+	const iterator& begin()const { return shared_head;}
+	iterator& end(){ return shared_tail;}
+	const iterator& end()const{ return shared_tail;}
 	
 	bool remove(const key& k){
 		nodelists lists;
@@ -220,17 +277,17 @@ public:
 	int find(const key& target, nodelists* lists){
 		int found = -1;
 		
-		shared_node pred = shared_head;
+		shared_node pred = shared_head.get();
 		shared_node curr;
 		*lists = nodelists();
 		//lists->second.resize(height);
 		for(int lv = height-1; lv >= 0; --lv){
 			curr = pred->next[lv];
-			while(curr->k < target){
+			while(curr->first < target){
 				pred = curr;
 				curr = pred->next[lv];
 			}
-			if(found == -1 && target == curr->k){ found = lv;}
+			if(found == -1 && target == curr->first){ found = lv;}
 			lists->first[lv] = weak_node(pred);
 			lists->second[lv] = weak_node(curr);
 		}
@@ -248,7 +305,7 @@ public:
 	}
 	
 	bool is_empty()const{
-		return head.next[0].get() == tail_ptr;
+		return head.next[0].get() == end().get().get();
 	}
 public:
 	uint32_t random_level()const {
@@ -261,12 +318,9 @@ public:
 		return cnt;
 	}
 private:
-	static bool ok_to_delete(const node_t* const candidate, size_t lv){
-		return (candidate->fullylinked 
-						&& candidate->top_layer == lv
-						&& !candidate->marked);
-	}
 	sl();
+	sl(const sl_t&);
+	sl_t& operator=(const sl_t&);
 };
 
 

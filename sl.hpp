@@ -41,6 +41,7 @@ public:
 		const node_t& operator*() const { return *node; }
 		const node_t* operator->() const { return &operator*();}
 		bool operator==(const iterator& rhs)const{return node.get() == rhs.node.get();}
+		bool operator!=(const iterator& rhs)const{return !operator==(rhs);}
 		shared_node& get(){return node;}
 		const shared_node& get()const{return node;}
 		iterator& operator++(){
@@ -306,6 +307,13 @@ public:
 	
 	bool is_empty()const{
 		return head.next[0].get() == end().get().get();
+	}
+	bool clear(){
+		while(shared_head->next[0] != shared_tail.get()){
+			for(int i=0;i<height;i++){
+				shared_tail->next[i] = shared_tail->next[0]->next[0];
+			}
+		}
 	}
 public:
 	uint32_t random_level()const {

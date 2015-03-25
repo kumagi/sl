@@ -1,9 +1,12 @@
 #ifndef SL_HPP
 #define SL_HPP
+#include "stdlib.h"
+
 #include <urcu-defer.h>
 #include <atomic>
 #include <random>
 #include <utility>
+#include <iostream>  // only for debug
 #include "markable_ptr.hpp"
 
 namespace nanahan {
@@ -17,308 +20,139 @@ void nothing_deleter(const T*) {
 template <typename KeyType, typename ValueType>
 class LachesisDB {
 private:
-  class node {
-    node(KeyType key, ValueType value)
-      : first(key), second(value) {
-    }
+  class node_t {
+   private:
     friend class LachesisDB<KeyType, ValueType>;
 
-  public:
+    static node_t* allocate(int size) {
+      const size_t calc_size =
+          sizeof(KeyType) +
+          sizeof(ValueType) +
+          sizeof(int) +
+          sizeof(markable_ptr<node_t>) * size;
+      const size_t aligned_size = ((calc_size + 7) / 8) * 8;
+      std::cout << "aligned_size:" << aligned_size << std::endl;
+      node_t* ret = static_cast<node_t*>(malloc(aligned_size));
+      ret->top_layer = size;
+      return ret;
+    }
+
+    static node_t* new_node(KeyType key, ValueType value, int height) {
+      node_t* ret = allocate(height);
+      new (&ret->first) KeyType(key);
+      new (&ret->second) ValueType(value);
+      return ret;
+    }
+
+   public:
     const KeyType first;
     ValueType second;
-  private:
-    const int top_layer;  // length
-    markable_ptr<node> next[1];  // variable length
+   private:
+    int top_layer;  // length
+    markable_ptr<node_t> next[1];  // variable length
   };
 
-public:
+ public:
   class iterator {
-  public:
-    node* point;
-  private:
-    iterator(node* p)
+   public:
+    node_t* point;
+   private:
+    iterator(node_t* p)
       : point(p) {}
-  public:
-    ~node() {}
+   public:
+    ~iterator() {}
 
-    node_t& operator*() { return *node; }
+    node_t& operator*() { return *point; }
     node_t* operator->() { return &operator*(); }
-    const node_t& operator*() const { return *node; }
+    const node_t& operator*() const { return *point; }
     const node_t* operator->() const { return &operator*();}
-    bool operator==(const iterator& rhs) const = default;
-    bool operator!=(const iterator& rhs) const = default;
+    bool operator==(const iterator& rhs) const {
+      return point == rhs.point;
+    }
+    bool operator!=(const iterator& rhs) const {
+      return !this->operator==(rhs);
+    }
+
     iterator& operator++() {
-      while (true) {
-        if (!node->next[0]->is_null()) {
-          node = node->next[0];
+      for (;;) {
+        if (!point->next[0]->is_null()) {
+          point = point->next[0];
         }
       }
       return *this;
     }
-  }; __attribute__((aligned (64)));
+  };
 
-private:
+ private:
   const int max_height_;
-  mutable boost::mt19937 rand_;
-  markable_ptr<node> head_[1];  // variable length
-public:
+  mutable std::mt19937 rand_;
+  node_t* head_;
+ public:
+
   LachesisDB(int max_height, int randomseed = std::random_device()())
     : max_height_(max_height),
-      rand(static_cast<unsigned long>(randomseed)) {
-    for (markable_ptr<node> h : head_) {
-      h = nullptr;
+      rand_(static_cast<unsigned long>(randomseed)) {
+    head_ = node_t::allocate(max_height);
+    std::cout << "max_height:" <<max_height << std::endl;
+    for (int i = 0; i < max_height; ++i) {
+      head_->next[i] = nullptr;
     }
   }
 
-  ~sl() {
-  }
-  bool contains(const key& k) {
-    nodelists lists;
-    const int lv = find(k, &lists);
-    weak_node_array& succs = lists.second;
-    if (lv == -1) return false;
-    shared_node succ = succs[lv].lock();
-    if (!succ) return false;
-    return succ->fullylinked
-      && !succ->marked;
+  ~LachesisDB() {
+    this->clear();
   }
 
-  iterator get(const key& k) {
-    nodelists lists;
-    const int lv = find(k, &lists);
-    weak_node_array& succs = lists.second;
-    if (lv == -1) return end();
-    shared_node succ = succs[lv].lock();
-    if (!succ) return end();
-    if (succ->fullylinked && !succ->marked) {
-      return iterator(succ);
-    }else{
-      return end();
-    }
+  bool contains(const KeyType& k) {
   }
 
-  iterator lower_bound(const key& k) {
-    nodelists lists;
-    const int lv = find(k, &lists);
-    weak_node_array& currs = lists.first;
-    weak_node_array& succs = lists.second;
-    shared_node curr = currs[0].lock();
-    if (lv == -1) return iterator(curr);
-    shared_node succ = succs[lv].lock();
-    if (!succ) return end();
-    if (succ->fullylinked && !succ->marked) {
-      return iterator(succ);
-    }else{
-      shared_node curr = currs[0].lock();
-      return iterator(curr);
-    }
+  iterator get(const KeyType& k) {
   }
 
-  bool add(const key& k, const value& v) {
-    const int top_layer = random_level();
-    assert(top_layer < height);
-    nodelists lists;
-    std::auto_ptr<node_t> newnode(new node_t(k, v, top_layer));
-    while(true) {
-      const int lv = find(k, &lists);
-      weak_node_array& preds = lists.first;
-      weak_node_array& succs = lists.second;
-
-      if (lv != -1) {
-        const node_t* found = succs[lv].lock().get();
-        if (!found) continue;
-        if (!found->marked) {
-          while(!found->fullylinked) {;}
-          return false;
-        }
-        usleep(1);
-        continue;
-      }
-      bool valid = true;
-
-
-      // get shared_ptr from weak_ptr array
-      locked_node_array locked_preds;
-      locked_node_array locked_succs;
-      for(int i=0;i<=top_layer;++i) {
-        locked_preds[i] = preds[i].lock();
-        locked_succs[i] = succs[i].lock();
-        if (!locked_preds[i] || !locked_succs[i]) {valid = false; break;}
-      }
-      if (!valid) {
-        continue;
-      }
-
-      node_t *prev_pred = NULL;
-      std::vector<scoped_lock_ptr> pred_locks(top_layer+1);
-      for(int layer = 0; valid && (layer <= top_layer); ++layer) {
-        node_t* pred = locked_preds[layer].get();
-        const node_t* succ = locked_succs[layer].get();
-
-        if (pred != prev_pred) {
-          pred_locks[layer] = scoped_lock_ptr(new scoped_lock(pred->guard));
-          prev_pred = pred;
-        }
-        assert(pred);
-        assert(succ);
-        valid = !pred->marked
-          && !succ->marked
-          && pred->next[layer].get() == succ;
-
-      }
-      if (!valid) {
-//        std::cerr << "unlock \n";
-        continue; // unlock all
-      }
-
-      // start to insert
-      for(int i = 0;i<=top_layer; ++i) {
-        newnode->next[i] = shared_node(succs[i]);
-        //std::cerr << "[" << newnode->next[i] << "]f";
-      }
-
-      shared_node newnode_insert(newnode.get());
-      newnode.release(); // it's all reason why I use auto_ptr
-      for(int layer = 0;layer <= top_layer; ++layer) {
-        locked_preds[layer]->next[layer] = newnode_insert;
-      }
-      newnode_insert->fullylinked = true;
-      return true;
-    }
-    assert(!"never reach");
+  iterator lower_bound(const KeyType& k) {
   }
 
-  iterator& begin() { return shared_head;}
-  const iterator& begin() const { return shared_head;}
-  iterator& end() { return shared_tail;}
-  const iterator& end() const { return shared_tail;}
-
-  bool remove(const key& k) {
-    nodelists lists;
-    bool is_marked = false;
-    int top_layer = -1;
-    shared_node victim;
-    assert(victim.get() == NULL);
-    while(true) {
-
-      int lv = find(k, &lists);
-      weak_node_array& preds = lists.first;
-      weak_node_array& succs = lists.second;
-
-      if (lv != -1) {
-        victim = succs[lv].lock();
-        if (!victim) return false;
-      }
-      if (is_marked || 
-         (lv != -1 && (victim->fullylinked
-                       && victim->top_layer == lv 
-                       && !victim->marked))) {
-        if (is_marked == false) { // only one time done
-          top_layer = victim->top_layer;
-          victim->guard.lock(); // lock
-          if (victim->marked) {
-            victim->guard.unlock();
-            return false;
-          }
-          victim->marked = true;
-          is_marked = true;
-        }
-
-        bool valid = true;
-        // get shared_ptr from weak_ptr array
-        locked_node_array locked_preds;
-        locked_node_array locked_succs;
-        for(int i=0;i<=top_layer;++i) {
-          locked_preds[i] = preds[i].lock();
-          locked_succs[i] = succs[i].lock();
-          if (!locked_preds[i] || !locked_succs[i]) {valid = false; break;}
-        }
-        if (!valid) {
-          continue;
-        }
-
-        node_t *prev_pred = NULL;
-        std::vector<scoped_lock_ptr> pred_locks(top_layer+1);
-        for(int layer = 0; valid && (layer <= top_layer); ++layer) {
-          node_t *pred = locked_preds[layer].get();
-          const node_t *succ = locked_succs[layer].get();
-          if (pred != prev_pred) {
-            pred_locks[layer] = scoped_lock_ptr(new scoped_lock(pred->guard));
-            prev_pred = pred;
-          }
-          valid = !pred->marked && pred->next[layer].get() == succ;
-        }
-        if (!valid) {
-          continue;
-        }
-
-        for(int layer = top_layer; layer>=0; --layer) {
-          locked_preds[layer]->next[layer] = victim->next[layer];
-        }
-        victim->guard.unlock();
-        return true;
-      }else 
-        return false; 
-    }
+  bool add(const KeyType& k, const ValueType& v) {
   }
 
-  int find(const key& target, nodelists* lists) {
-    int found = -1;
+  iterator& begin() { return iterator(head_); }
+  const iterator& begin() const { return iterator(nullptr);}
+  iterator& end() { return nullptr; }
+  const iterator& end() const { return nullptr; }
 
-    shared_node pred = shared_head.get();
-    shared_node curr;
-    *lists = nodelists();
-    //lists->second.resize(height);
-    for(int lv = height-1; lv >= 0; --lv) {
-      curr = pred->next[lv];
-      while(curr->first < target) {
-        pred = curr;
-        curr = pred->next[lv];
-      }
-      if (found == -1 && target == curr->first) { found = lv;}
-      lists->first[lv] = weak_node(pred);
-      lists->second[lv] = weak_node(curr);
-    }
-
-    return found;
-  }
-
-  void dump() const {
-    const node_t* p = &head;
-    while(p != NULL) {
-      p->dump();
-      p = p->next[0].get();
-      std::cerr << std::endl;
-    }
+  bool remove(const KeyType& k) {
   }
 
   bool is_empty() const {
-    return head.next[0].get() == end().get().get();
+    return head_ == nullptr;
   }
 
-  bool clear() {
-    while(shared_head->next[0] != shared_tail.get()) {
-      for(int i=0;i<height;i++) {
-        shared_tail->next[i] = shared_tail->next[0]->next[0];
-      }
+  void clear() {
+    node_t* next = head_;
+    while (next == nullptr) {
+      node_t* old_next = next;
+      next = next->next[0].get_ptr();
+      free(old_next);
     }
   }
 public:
   uint32_t random_level() const {
-    const uint32_t gen = rand();
-    int bit = 1; int cnt=0;
-    while(cnt < height-1) {
+    const uint32_t gen = rand_();
+    int bit = 1;
+    int cnt = 0;
+    while (cnt < max_height_ - 1) {
       if (gen & bit) {
         return cnt;
       }
-      bit <<= 1;++cnt;
+      bit <<= 1;
+      ++cnt;
     }
     return cnt;
   }
 private:
-  sl();
-  sl(const sl_t&);
-  sl_t& operator=(const sl_t&);
+  LachesisDB();
+  LachesisDB(const LachesisDB&);
+  LachesisDB& operator=(const LachesisDB&);
 };
 
 }  // namespace nanahan
